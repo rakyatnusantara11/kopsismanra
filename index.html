@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Mini CRM Koperasi</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+body { font-family: Inter, Arial, sans-serif; background:#f3f5f7; margin:0; }
+header { background:#1f2937; color:white; padding:15px; font-size:20px; }
+.container { padding:20px; max-width:1200px; margin:auto; }
+
+.card { background:white; padding:15px; border-radius:8px; margin-bottom:20px; }
+h2 { margin-top:0; }
+
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; }
+input, select, button {
+  padding:8px; width:100%;
+}
+button {
+  background:#2563eb; color:white; border:none; border-radius:6px;
+}
+button.danger { background:#dc2626; }
+button.secondary { background:#6b7280; }
+
+table { width:100%; border-collapse:collapse; }
+th, td { padding:8px; border-bottom:1px solid #ddd; text-align:center; }
+th { background:#f1f5f9; }
+
+.badge { padding:3px 8px; border-radius:12px; font-size:12px; }
+.in { background:#dcfce7; color:#166534; }
+.out { background:#fee2e2; color:#991b1b; }
+</style>
+</head>
+
+<body>
+<header>🏪 Mini CRM Koperasi (ERP Style)</header>
+
+<div class="container">
+
+<!-- CATEGORY -->
+<div class="card">
+<h2>Kategori</h2>
+<div class="grid">
+<input id="catName" placeholder="Nama Kategori">
+<button onclick="addCategory()">Tambah</button>
+</div>
+<div id="catList"></div>
+</div>
+
+<!-- PRODUCT -->
+<div class="card">
+<h2>Produk</h2>
+<div class="grid">
+<input id="prodName" placeholder="Nama Produk">
+<select id="prodCat"></select>
+<input id="prodPrice" type="number" placeholder="Harga">
+<button onclick="addProduct()">Tambah Produk</button>
+</div>
+<table>
+<thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Aksi</th></tr></thead>
+<tbody id="prodTable"></tbody>
+</table>
+</div>
+
+<!-- INVENTORY -->
+<div class="card">
+<h2>Transaksi Stok</h2>
+<div class="grid">
+<select id="moveProduct"></select>
+<select id="moveType">
+<option value="in">Masuk</option>
+<option value="out">Keluar</option>
+</select>
+<input type="number" id="moveQty" placeholder="Jumlah">
+<input type="date" id="moveDate">
+<button onclick="addMove()">Simpan</button>
+</div>
+</div>
+
+<!-- MOVES -->
+<div class="card">
+<h2>Riwayat Transaksi</h2>
+<button class="secondary" onclick="exportExcel()">📤 Export Excel</button>
+<table>
+<thead><tr><th>Tanggal</th><th>Produk</th><th>Kategori</th><th>Jenis</th><th>Qty</th><th>Aksi</th></tr></thead>
+<tbody id="moveTable"></tbody>
+</table>
+</div>
+
+</div>
+
+<script>
+const db = {
+  categories: JSON.parse(localStorage.getItem('cat')) || [],
+  products: JSON.parse(localStorage.getItem('prod')) || [],
+  moves: JSON.parse(localStorage.getItem('move')) || []
+};
+
+const uid = () => crypto.randomUUID();
+const save = () => {
+  localStorage.setItem('cat', JSON.stringify(db.categories));
+  localStorage.setItem('prod', JSON.stringify(db.products));
+  localStorage.setItem('move', JSON.stringify(db.moves));
+};
+const rupiah = n => 'Rp ' + n.toLocaleString('id-ID');
+
+const stockOf = pid =>
+  db.moves.reduce((s,m)=>m.productId===pid?(m.type==='in'?s+m.qty:s-m.qty):s,0);
+
+function render(){
+  prodCat.innerHTML = moveProduct.innerHTML = '';
+  db.categories.forEach(c=>{
+    prodCat.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+  });
+
+  prodTable.innerHTML='';
+  db.products.forEach(p=>{
+    moveProduct.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+    prodTable.innerHTML += `
+      <tr>
+        <td>${p.name}</td>
+        <td>${db.categories.find(c=>c.id===p.categoryId)?.name}</td>
+        <td>${rupiah(p.price)}</td>
+        <td>${stockOf(p.id)}</td>
+        <td><button class="danger" onclick="delProduct('${p.id}')">Hapus</button></td>
+      </tr>`;
+  });
+
+  moveTable.innerHTML='';
+  db.moves.forEach((m,i)=>{
+    const p = db.products.find(p=>p.id===m.productId);
+    moveTable.innerHTML += `
+    <tr>
+      <td>${m.date}</td>
+      <td>${p.name}</td>
+      <td>${db.categories.find(c=>c.id===p.categoryId).name}</td>
+      <td><span class="badge ${m.type}">${m.type}</span></td>
+      <td>${m.qty}</td>
+      <td><button class="danger" onclick="delMove(${i})">Hapus</button></td>
+    </tr>`;
+  });
+
+  catList.innerHTML = db.categories.map(c=>`<span class="badge">${c.name}</span>`).join(' ');
+}
+
+function addCategory(){
+  db.categories.push({id:uid(), name:catName.value});
+  save(); render();
+}
+
+function addProduct(){
+  db.products.push({
+    id:uid(),
+    name:prodName.value,
+    categoryId:prodCat.value,
+    price:+prodPrice.value
+  });
+  save(); render();
+}
+
+function addMove(){
+  db.moves.push({
+    id:uid(),
+    productId:moveProduct.value,
+    type:moveType.value,
+    qty:+moveQty.value,
+    date:moveDate.value
+  });
+  save(); render();
+}
+
+function delProduct(id){
+  if(confirm('Hapus produk & semua transaksinya?')){
+    db.products=db.products.filter(p=>p.id!==id);
+    db.moves=db.moves.filter(m=>m.productId!==id);
+    save(); render();
+  }
+}
+
+function delMove(i){
+  if(confirm('Hapus transaksi?')){
+    db.moves.splice(i,1);
+    save(); render();
+  }
+}
+
+function exportExcel(){
+  const wb = XLSX.utils.book_new();
+
+  db.categories.forEach(c=>{
+    const rows = db.moves
+      .filter(m=>db.products.find(p=>p.id===m.productId)?.categoryId===c.id)
+      .map(m=>{
+        const p=db.products.find(p=>p.id===m.productId);
+        return {
+          Tanggal:m.date,
+          Produk:p.name,
+          Jenis:m.type,
+          Qty:m.qty
+        };
+      });
+    if(rows.length)
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),c.name);
+  });
+
+  const stok = db.products.map(p=>({
+    Produk:p.name,
+    Kategori:db.categories.find(c=>c.id===p.categoryId).name,
+    Harga:p.price,
+    Stok:stockOf(p.id),
+    Nilai:p.price*stockOf(p.id)
+  }));
+
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(stok),'Stok_Akhir');
+  XLSX.writeFile(wb,'CRM_Koperasi.xlsx');
+}
+
+render();
+</script>
+</body>
+</html>
